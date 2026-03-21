@@ -1,0 +1,14 @@
+[package]
+name = "looklocker-t1map-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.0", features = ["derive"] }
+indicatif = "0.18.4"
+levenberg-marquardt = "0.15.0"
+nalgebra = "0.34.1"
+ndarray = "0.16.1"
+nifti = "0.17.0"
+rayon = "1.11.0"
