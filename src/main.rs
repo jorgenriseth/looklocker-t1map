@@ -12,6 +12,7 @@ mod model;
 mod masking;
 mod morphology;
 mod postprocess;
+mod filters;
 
 use model::LookLockerProblem;
 use postprocess::PostProcessOptions;
@@ -77,16 +78,26 @@ fn main() -> Result<()> {
         }
     }
 
-    // 2. Threshold > 0 and masking on first volume
+    // 2. Thresholding pipeline (mri_facemask equivalent)
     let first_vol = mri_data.slice(s![.., .., .., 0]);
-    let mut mask_input = Array3::<bool>::from_elem((nx, ny, nz), false);
-    for ((x, y, z), &val) in first_vol.indexed_iter() {
-        if val > 0.0 {
-            mask_input[[x, y, z]] = true;
-        }
-    }
     
-    let mut mask = masking::get_largest_component_mask(&mask_input);
+    // Step A: Triangle Threshold
+    let triangle_thresh = masking::compute_triangle_threshold(&first_vol);
+    println!("  Triangle threshold: {:.2}", triangle_thresh);
+    let mut mask = first_vol.mapv(|v| v > triangle_thresh);
+    
+    // Step B: Fill holes
+    mask = morphology::binary_fill_holes(&mask);
+    
+    // Step C: Gaussian Blur (sigma=5.0)
+    let mask_float = mask.mapv(|b| if b { 1.0f32 } else { 0.0f32 });
+    let blurred_mask = filters::gaussian_blur_3d(&mask_float, 5.0);
+    
+    // Step D: ISODATA Threshold
+    let isodata_thresh = masking::compute_isodata_threshold(&blurred_mask.view());
+    println!("  ISODATA threshold (on mask): {:.4}", isodata_thresh);
+    
+    mask = blurred_mask.mapv(|v| v > isodata_thresh);
     
     // 3. Valid voxels: (max_proj > 0) AND mask
     let mut t1_map = Array3::<f32>::from_elem((nx, ny, nz), f32::NAN);
@@ -134,6 +145,12 @@ fn main() -> Result<()> {
             return ((x, y, z), f32::NAN);
         }
         
+        // If any time point is non-finite, skip fitting (matches Python behavior)
+        if voxel_data.iter().any(|&v| !v.is_finite()) {
+            pb.inc(1);
+            return ((x, y, z), f32::NAN);
+        }
+
         let y_data: Vec<f64> = voxel_data.iter().map(|&v| v / max_val).collect();
         let y_vec = DVector::from_vec(y_data);
 
@@ -183,8 +200,9 @@ fn main() -> Result<()> {
     // Save raw output if requested
     if let Some(raw_path) = &args.output_raw {
         println!("Saving raw output...");
-        let raw_data = t1_map.clone().into_dyn();
-        io::save_nifti(raw_path, raw_data, &header)?;
+        let mut raw_data = t1_map.clone();
+        raw_data.mapv_inplace(|v| if v.is_nan() { 0.0 } else { v });
+        io::save_nifti(raw_path, raw_data.into_dyn(), &header)?;
     }
 
     // Post-processing
@@ -194,10 +212,11 @@ fn main() -> Result<()> {
         t1_high: args.t1_high,
         ..Default::default()
     };
-    
-    postprocess::clean_t1_map(&mut t1_map, &mut mask, &options);
+
+    postprocess::clean_t1_map(&mut t1_map, &mask, &options);
 
     println!("Saving post-processed output...");
+    t1_map.mapv_inplace(|v| if v.is_nan() { 0.0 } else { v });
     let output_data = t1_map.into_dyn();
     io::save_nifti(&args.output, output_data, &header)?;
 

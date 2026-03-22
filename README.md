@@ -85,8 +85,11 @@ Run the tool using the compiled binary.
 
 The tool automatically applies the following steps to clean the T1 map:
 
-1. **Mask Generation**: Identifies the largest connected component of the
-    signal.
+1.  **Mask Generation**: Replicates the robust `mri_facemask` algorithm:
+    -   **Triangle Thresholding** on the first volume.
+    -   **Hole Filling** to capture internal structures.
+    -   **Gaussian Smoothing** (sigma=5.0) of the mask.
+    -   **ISODATA Thresholding** to define the final tight head mask.
 2. **Morphological Cleaning**: Removes small holes, dilates the mask
     (radius 10) to include boundaries, and then erodes (radius 13) to remove
     edge artifacts.

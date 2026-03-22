@@ -1,113 +1,74 @@
 use ndarray::Array3;
-use rayon::prelude::*;
+use std::collections::VecDeque;
 
-/// Generates a spherical structuring element (list of offsets) for a given radius.
-fn get_ball_offsets(radius: usize) -> Vec<(isize, isize, isize)> {
-    let r = radius as isize;
-    let mut offsets = Vec::new();
-    for x in -r..=r {
-        for y in -r..=r {
-            for z in -r..=r {
-                if (x*x + y*y + z*z) as f64 <= (r as f64 + 0.5).powi(2) {
-                    offsets.push((x, y, z));
+/// Fills holes in a binary mask by flood-filling the background from all image borders.
+///
+/// Uses 26-connectivity, matching scipy.ndimage.binary_fill_holes default behaviour
+/// (generate_binary_structure(3, 3)).  6-connectivity would block diagonal passages and
+/// incorrectly fill more regions, producing a larger mask.
+pub fn binary_fill_holes(mask: &Array3<bool>) -> Array3<bool> {
+    let shape = mask.shape();
+    let (nx, ny, nz) = (shape[0], shape[1], shape[2]);
+    let mut background = Array3::from_elem((nx, ny, nz), false);
+    let mut visited    = Array3::from_elem((nx, ny, nz), false);
+    let mut queue      = VecDeque::new();
+
+    let seed = |x: usize, y: usize, z: usize,
+                    q:   &mut VecDeque<(usize, usize, usize)>,
+                    vis: &mut Array3<bool>,
+                    bg:  &mut Array3<bool>| {
+        if !mask[[x, y, z]] && !vis[[x, y, z]] {
+            vis[[x, y, z]] = true;
+            bg[[x, y, z]]  = true;
+            q.push_back((x, y, z));
+        }
+    };
+
+    // Seed all six faces.
+    for y in 0..ny { for z in 0..nz {
+        seed(0,    y, z, &mut queue, &mut visited, &mut background);
+        seed(nx-1, y, z, &mut queue, &mut visited, &mut background);
+    }}
+    for x in 0..nx { for z in 0..nz {
+        seed(x, 0,    z, &mut queue, &mut visited, &mut background);
+        seed(x, ny-1, z, &mut queue, &mut visited, &mut background);
+    }}
+    for x in 0..nx { for y in 0..ny {
+        seed(x, y, 0,    &mut queue, &mut visited, &mut background);
+        seed(x, y, nz-1, &mut queue, &mut visited, &mut background);
+    }}
+
+    // 26-connected flood fill.
+    const NEIGHBORS: [(isize, isize, isize); 26] = [
+        // 6 face
+        (-1, 0, 0), (1, 0, 0), (0,-1, 0), (0, 1, 0), (0, 0,-1), (0, 0, 1),
+        // 12 edge
+        (-1,-1, 0), (-1, 1, 0), (1,-1, 0), (1, 1, 0),
+        (-1, 0,-1), (-1, 0, 1), (1, 0,-1), (1, 0, 1),
+        ( 0,-1,-1), ( 0,-1, 1), (0, 1,-1), (0, 1, 1),
+        // 8 corner
+        (-1,-1,-1), (-1,-1, 1), (-1, 1,-1), (-1, 1, 1),
+        ( 1,-1,-1), ( 1,-1, 1), ( 1, 1,-1), ( 1, 1, 1),
+    ];
+
+    while let Some((cx, cy, cz)) = queue.pop_front() {
+        for &(dx, dy, dz) in &NEIGHBORS {
+            let ix = cx as isize + dx;
+            let iy = cy as isize + dy;
+            let iz = cz as isize + dz;
+            if ix >= 0 && ix < nx as isize &&
+               iy >= 0 && iy < ny as isize &&
+               iz >= 0 && iz < nz as isize {
+                let (ux, uy, uz) = (ix as usize, iy as usize, iz as usize);
+                if !mask[[ux, uy, uz]] && !visited[[ux, uy, uz]] {
+                    visited[[ux, uy, uz]] = true;
+                    background[[ux, uy, uz]] = true;
+                    queue.push_back((ux, uy, uz));
                 }
             }
         }
     }
-    offsets
-}
 
-/// 3D Binary Dilation
-pub fn binary_dilation(input: &Array3<bool>, radius: usize) -> Array3<bool> {
-    let shape = input.shape();
-    let (nx, ny, nz) = (shape[0], shape[1], shape[2]);
-    let offsets = get_ball_offsets(radius);
-
-    // Naive parallel implementation: iterate over output voxels
-    // Optimization: Only iterate over true input voxels and paint neighbors?
-    // "Paint neighbors" requires atomic or mutex, which is slow.
-    // "Check neighbors" for each output voxel is parallel-friendly (read-only input).
-    
-    // Better: For each voxel in output, if any neighbor in input is true, set true.
-    // But this is slow if kernel is large. Radius is usually small.
-    
-    // Let's stick to "for each voxel, check neighbors".
-    // We can iterate over indices.
-    
-    // Use unsafe raw slice or Zip for performance if needed, but let's start safe.
-    // To make it parallel, we can collect results or use `Array3::from_shape_vec`.
-    
-    let out_vec: Vec<bool> = (0..nx * ny * nz).into_par_iter().map(|idx| {
-        // Convert flat index to 3D
-        let z = idx % nz;
-        let y = (idx / nz) % ny;
-        let x = idx / (ny * nz);
-        
-        // If input is true, output is true (dilation includes center usually).
-        // Actually mathematical dilation: if any input pixel in kernel is 1.
-        // If center is 1, it stays 1 (assuming kernel contains (0,0,0)).
-        
-        // Optimization: if input at center is true, we don't need to check neighbors (if kernel has origin).
-        // Standard structuring element usually includes origin.
-        if input[[x, y, z]] {
-            return true;
-        }
-
-        // Check neighbors
-        for &(dx, dy, dz) in &offsets {
-            let ix = x as isize + dx;
-            let iy = y as isize + dy;
-            let iz = z as isize + dz;
-            
-            if ix >= 0 && ix < nx as isize &&
-               iy >= 0 && iy < ny as isize &&
-               iz >= 0 && iz < nz as isize
-                   && input[[ix as usize, iy as usize, iz as usize]] {
-                       return true;
-                   }
-        }
-        false
-    }).collect();
-    
-    Array3::from_shape_vec((nx, ny, nz), out_vec).unwrap()
-}
-
-/// 3D Binary Erosion
-pub fn binary_erosion(input: &Array3<bool>, radius: usize) -> Array3<bool> {
-    let shape = input.shape();
-    let (nx, ny, nz) = (shape[0], shape[1], shape[2]);
-    let offsets = get_ball_offsets(radius);
-
-    let out_vec: Vec<bool> = (0..nx * ny * nz).into_par_iter().map(|idx| {
-        let z = idx % nz;
-        let y = (idx / nz) % ny;
-        let x = idx / (ny * nz);
-        
-        // Erosion: true only if ALL neighbors in kernel are true.
-        // So if ANY neighbor is false, result is false.
-        // Wait, standard definition: 
-        // A pixel is 1 if the structuring element centered at it is completely contained in the input set.
-        // I.e., for all offsets in SE, input[coord + offset] must be 1.
-        
-        for &(dx, dy, dz) in &offsets {
-            let ix = x as isize + dx;
-            let iy = y as isize + dy;
-            let iz = z as isize + dz;
-            
-            if ix >= 0 && ix < nx as isize &&
-               iy >= 0 && iy < ny as isize &&
-               iz >= 0 && iz < nz as isize {
-                   if !input[[ix as usize, iy as usize, iz as usize]] {
-                       return false;
-                   }
-            } else {
-                // If the kernel goes outside, it's usually considered "background" (0).
-                // So if we hit boundary, condition fails -> false.
-                return false; 
-            }
-        }
-        true
-    }).collect();
-
-    Array3::from_shape_vec((nx, ny, nz), out_vec).unwrap()
+    // Every voxel that is NOT background is either inside the original mask or a filled hole.
+    background.mapv(|b| !b)
 }
