@@ -10,8 +10,12 @@ pub fn compute_triangle_threshold(data: &ArrayView3<f32>) -> f32 {
 
     for &v in data {
         if v.is_finite() {
-            if v < min_val { min_val = v; }
-            if v > max_val { max_val = v; }
+            if v < min_val {
+                min_val = v;
+            }
+            if v > max_val {
+                max_val = v;
+            }
         }
     }
 
@@ -32,7 +36,7 @@ pub fn compute_triangle_threshold(data: &ArrayView3<f32>) -> f32 {
     // Peak, first and last non-zero bins.
     let arg_peak = hist.iter().enumerate().max_by_key(|&(_, &c)| c).unwrap().0;
     let peak_height = hist[arg_peak] as f64;
-    let arg_low  = hist.iter().position(|&c| c > 0).unwrap_or(0);
+    let arg_low = hist.iter().position(|&c| c > 0).unwrap_or(0);
     let arg_high = hist.iter().rposition(|&c| c > 0).unwrap_or(num_bins - 1);
 
     if arg_low == arg_high {
@@ -69,7 +73,11 @@ pub fn compute_triangle_threshold(data: &ArrayView3<f32>) -> f32 {
     }
 
     // Unflip and return bin centre — matches scikit-image's bin_centers[arg_level].
-    let arg_level = if flip { num_bins - arg_level_w - 1 } else { arg_level_w };
+    let arg_level = if flip {
+        num_bins - arg_level_w - 1
+    } else {
+        arg_level_w
+    };
     min_val + (arg_level as f32 + 0.5) * bin_width
 }
 
@@ -81,12 +89,18 @@ pub fn compute_isodata_threshold(data: &ArrayView3<f32>) -> f32 {
 
     for &v in data {
         if v.is_finite() {
-            if v < min_val { min_val = v; }
-            if v > max_val { max_val = v; }
+            if v < min_val {
+                min_val = v;
+            }
+            if v > max_val {
+                max_val = v;
+            }
         }
     }
 
-    if min_val >= max_val { return min_val; }
+    if min_val >= max_val {
+        return min_val;
+    }
 
     // scikit-image initialises at (min + max) / 2, not the mean.
     let mut threshold = (min_val + max_val) / 2.0;
@@ -110,8 +124,16 @@ pub fn compute_isodata_threshold(data: &ArrayView3<f32>) -> f32 {
             }
         }
 
-        let mean_lower = if count_lower > 0 { sum_lower / count_lower as f64 } else { min_val as f64 };
-        let mean_upper = if count_upper > 0 { sum_upper / count_upper as f64 } else { max_val as f64 };
+        let mean_lower = if count_lower > 0 {
+            sum_lower / count_lower as f64
+        } else {
+            min_val as f64
+        };
+        let mean_upper = if count_upper > 0 {
+            sum_upper / count_upper as f64
+        } else {
+            max_val as f64
+        };
         let new_threshold = ((mean_lower + mean_upper) / 2.0) as f32;
 
         if (new_threshold - threshold).abs() < tolerance {

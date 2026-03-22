@@ -1,5 +1,5 @@
 use levenberg_marquardt::LeastSquaresProblem;
-use nalgebra::{DVector, OVector, U3, Dyn, OMatrix};
+use nalgebra::{DVector, Dyn, OMatrix, OVector, U3};
 
 pub struct LookLockerProblem {
     /// Time points
@@ -28,12 +28,17 @@ impl LeastSquaresProblem<f64, Dyn, U3> for LookLockerProblem {
         let x2 = self.p[1];
         let x3 = self.p[2];
 
-        let residuals: Vec<f64> = self.t.iter().zip(self.y.iter()).map(|(&t, &y)| {
-            let term_exp = (-(x3.powi(2)) * t).exp();
-            let term_inner = 1.0 - (1.0 + x2.powi(2)) * term_exp;
-            let model_val = (x1 * term_inner).abs();
-            y - model_val
-        }).collect();
+        let residuals: Vec<f64> = self
+            .t
+            .iter()
+            .zip(self.y.iter())
+            .map(|(&t, &y)| {
+                let term_exp = (-(x3.powi(2)) * t).exp();
+                let term_inner = 1.0 - (1.0 + x2.powi(2)) * term_exp;
+                let model_val = (x1 * term_inner).abs();
+                y - model_val
+            })
+            .collect();
 
         Some(DVector::from_vec(residuals))
     }
@@ -73,7 +78,13 @@ mod tests {
     use super::*;
     use nalgebra::Vector3;
 
-    fn make_problem(x1: f64, x2: f64, x3: f64, t_vals: &[f64], y_vals: &[f64]) -> LookLockerProblem {
+    fn make_problem(
+        x1: f64,
+        x2: f64,
+        x3: f64,
+        t_vals: &[f64],
+        y_vals: &[f64],
+    ) -> LookLockerProblem {
         LookLockerProblem {
             t: DVector::from_vec(t_vals.to_vec()),
             y: DVector::from_vec(y_vals.to_vec()),
@@ -125,9 +136,9 @@ mod tests {
         let t_vals = vec![0.3];
         let mv = model_val(1.0, 1.0, 1.0, 0.3);
         let prob_high = make_problem(1.0, 1.0, 1.0, &t_vals, &[mv + 1.0]);
-        let prob_low  = make_problem(1.0, 1.0, 1.0, &t_vals, &[mv - 1.0]);
+        let prob_low = make_problem(1.0, 1.0, 1.0, &t_vals, &[mv - 1.0]);
         assert!(prob_high.residuals().unwrap()[0] > 0.0);
-        assert!(prob_low.residuals().unwrap()[0]  < 0.0);
+        assert!(prob_low.residuals().unwrap()[0] < 0.0);
     }
 
     #[test]
@@ -140,18 +151,22 @@ mod tests {
         let prob = make_problem(x1, x2, x3, &t_vals, &y_vals);
         let jac = prob.jacobian().unwrap();
 
-        for (col, (dx1, dx2, dx3)) in [
-            (h, 0.0, 0.0),
-            (0.0, h, 0.0),
-            (0.0, 0.0, h),
-        ].iter().enumerate() {
-            let r_plus  = make_problem(x1 + dx1, x2 + dx2, x3 + dx3, &t_vals, &y_vals).residuals().unwrap();
-            let r_minus = make_problem(x1 - dx1, x2 - dx2, x3 - dx3, &t_vals, &y_vals).residuals().unwrap();
+        for (col, (dx1, dx2, dx3)) in [(h, 0.0, 0.0), (0.0, h, 0.0), (0.0, 0.0, h)]
+            .iter()
+            .enumerate()
+        {
+            let r_plus = make_problem(x1 + dx1, x2 + dx2, x3 + dx3, &t_vals, &y_vals)
+                .residuals()
+                .unwrap();
+            let r_minus = make_problem(x1 - dx1, x2 - dx2, x3 - dx3, &t_vals, &y_vals)
+                .residuals()
+                .unwrap();
             for i in 0..3 {
                 let fd = (r_plus[i] - r_minus[i]) / (2.0 * h);
                 assert!(
                     (jac[(i, col)] - fd).abs() < 1e-4,
-                    "J[{i},{col}] analytic={} fd={fd}", jac[(i, col)]
+                    "J[{i},{col}] analytic={} fd={fd}",
+                    jac[(i, col)]
                 );
             }
         }

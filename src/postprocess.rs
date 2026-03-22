@@ -13,7 +13,7 @@ fn gaussian_fill_pass(data: &Array3<f32>, mask: &Array3<bool>, sigma: f32) -> (A
     for dx in -radius..=radius {
         for dy in -radius..=radius {
             for dz in -radius..=radius {
-                let d2 = (dx*dx + dy*dy + dz*dz) as f32;
+                let d2 = (dx * dx + dy * dy + dz * dz) as f32;
                 if d2 <= (radius as f32 + 0.5).powi(2) {
                     kernel.push((dx, dy, dz, (-d2 / (2.0 * sigma * sigma)).exp()));
                 }
@@ -33,18 +33,22 @@ fn gaussian_fill_pass(data: &Array3<f32>, mask: &Array3<bool>, sigma: f32) -> (A
             }
 
             let mut weighted_sum = 0.0f32;
-            let mut weight_sum   = 0.0f32;
+            let mut weight_sum = 0.0f32;
             for &(dx, dy, dz, w) in &kernel {
                 let ix = x as isize + dx;
                 let iy = y as isize + dy;
                 let iz = z as isize + dz;
-                if ix >= 0 && ix < nx as isize &&
-                   iy >= 0 && iy < ny as isize &&
-                   iz >= 0 && iz < nz as isize {
+                if ix >= 0
+                    && ix < nx as isize
+                    && iy >= 0
+                    && iy < ny as isize
+                    && iz >= 0
+                    && iz < nz as isize
+                {
                     let v = data[[ix as usize, iy as usize, iz as usize]];
                     if !v.is_nan() {
                         weighted_sum += v * w;
-                        weight_sum   += w;
+                        weight_sum += w;
                     }
                 }
             }
@@ -70,36 +74,37 @@ fn gaussian_fill_pass(data: &Array3<f32>, mask: &Array3<bool>, sigma: f32) -> (A
 pub fn fill_holes_iterative(data: &mut Array3<f32>, mask: &Array3<bool>) {
     loop {
         let (new_data, count) = gaussian_fill_pass(data, mask, 1.0);
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         println!("  Filled {} voxels", count);
         *data = new_data;
     }
 }
 
 pub struct PostProcessOptions {
-    pub t1_low:  f32,
+    pub t1_low: f32,
     pub t1_high: f32,
 }
 
 impl Default for PostProcessOptions {
     fn default() -> Self {
-        Self { t1_low: 0.0, t1_high: 5500.0 }
+        Self {
+            t1_low: 0.0,
+            t1_high: 5500.0,
+        }
     }
 }
 
 /// Applies the face mask, removes T1 outliers, checks that the result is non-empty,
 /// then fills any remaining NaN voxels inside the mask by Gaussian interpolation.
-pub fn clean_t1_map(
-    t1_map:  &mut Array3<f32>,
-    mask:    &Array3<bool>,
-    options: &PostProcessOptions,
-) {
+pub fn clean_t1_map(t1_map: &mut Array3<f32>, mask: &Array3<bool>, options: &PostProcessOptions) {
     let shape = t1_map.shape();
     let (nx, ny, nz) = (shape[0], shape[1], shape[2]);
 
     println!("Applying mask and filtering outliers...");
     let mut mask_removed = 0usize;
-    let mut outliers     = 0usize;
+    let mut outliers = 0usize;
 
     for x in 0..nx {
         for y in 0..ny {
@@ -123,7 +128,7 @@ pub fn clean_t1_map(
     println!("  Removed {} outlier voxels", outliers);
 
     // Guard against bad units / extreme T1 bounds.
-    let total        = nx * ny * nz;
+    let total = nx * ny * nz;
     let finite_count = t1_map.iter().filter(|v| v.is_finite()).count();
     if (finite_count as f32 / total as f32) < 0.01 {
         panic!(
@@ -177,7 +182,10 @@ mod tests {
         let mut t1 = Array3::from_elem((5, 5, 5), 1000.0f32);
         let mut mask = all_mask((5, 5, 5));
         mask[[2, 2, 2]] = false;
-        let opts = PostProcessOptions { t1_low: 0.0, t1_high: 5500.0 };
+        let opts = PostProcessOptions {
+            t1_low: 0.0,
+            t1_high: 5500.0,
+        };
         clean_t1_map(&mut t1, &mask, &opts);
         assert!(t1[[2, 2, 2]].is_nan(), "out-of-mask voxel should be NaN");
     }
@@ -186,9 +194,12 @@ mod tests {
     fn clean_t1_map_removes_outliers() {
         let mut t1 = Array3::from_elem((5, 5, 5), 1000.0f32);
         t1[[1, 1, 1]] = 6000.0; // above t1_high
-        t1[[2, 2, 2]] = -1.0;   // below t1_low
+        t1[[2, 2, 2]] = -1.0; // below t1_low
         let mask = all_mask((5, 5, 5));
-        let opts = PostProcessOptions { t1_low: 0.0, t1_high: 5500.0 };
+        let opts = PostProcessOptions {
+            t1_low: 0.0,
+            t1_high: 5500.0,
+        };
         clean_t1_map(&mut t1, &mask, &opts);
         assert!(t1[[1, 1, 1]].is_nan() || t1[[1, 1, 1]] <= 5500.0);
         assert!(t1[[2, 2, 2]].is_nan() || t1[[2, 2, 2]] >= 0.0);
@@ -198,7 +209,10 @@ mod tests {
     fn clean_t1_map_in_bounds_values_preserved() {
         let mut t1 = Array3::from_elem((5, 5, 5), 1000.0f32);
         let mask = all_mask((5, 5, 5));
-        let opts = PostProcessOptions { t1_low: 0.0, t1_high: 5500.0 };
+        let opts = PostProcessOptions {
+            t1_low: 0.0,
+            t1_high: 5500.0,
+        };
         clean_t1_map(&mut t1, &mask, &opts);
         assert!(t1[[0, 0, 0]].is_finite());
     }
@@ -209,7 +223,10 @@ mod tests {
         let mut t1 = Array3::from_elem((10, 10, 10), 1000.0f32);
         let mask = all_mask((10, 10, 10));
         // Bounds that exclude all values (1000 < 2000), leaving 0% finite
-        let opts = PostProcessOptions { t1_low: 2000.0, t1_high: 3000.0 };
+        let opts = PostProcessOptions {
+            t1_low: 2000.0,
+            t1_high: 3000.0,
+        };
         clean_t1_map(&mut t1, &mask, &opts);
     }
 }
