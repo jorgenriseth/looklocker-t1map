@@ -49,6 +49,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          CARGO_VERSION="v$(grep '^version' Cargo.toml | head -1 | sed 's/.*= "\(.*\)"/\1/')"
+          if [ "${{ github.ref_name }}" != "$CARGO_VERSION" ]; then
+            echo "Tag ${{ github.ref_name }} does not match Cargo.toml version $CARGO_VERSION"
+            exit 1
+          fi
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:

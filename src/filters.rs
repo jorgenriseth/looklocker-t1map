@@ -40,11 +40,11 @@ fn convolve_1d(input: &Array3<f32>, axis: usize, kernel: &[f32]) -> Array3<f32> 
                 for y in 0..ny {
                     for x in 0..nx {
                         let mut sum = 0.0;
-                        for k in 0..kernel.len() {
+                        for (k, &w) in kernel.iter().enumerate() {
                             let offset = k as isize - radius;
                             let ix = x as isize + offset;
                             let ix_clamped = ix.max(0).min(nx as isize - 1) as usize;
-                            sum += input[[ix_clamped, y, z]] * kernel[k];
+                            sum += input[[ix_clamped, y, z]] * w;
                         }
                         slice_z[[x, y]] = sum;
                     }
@@ -60,11 +60,11 @@ fn convolve_1d(input: &Array3<f32>, axis: usize, kernel: &[f32]) -> Array3<f32> 
                 for x in 0..nx {
                     for y in 0..ny {
                         let mut sum = 0.0;
-                        for k in 0..kernel.len() {
+                        for (k, &w) in kernel.iter().enumerate() {
                             let offset = k as isize - radius;
                             let iy = y as isize + offset;
                             let iy_clamped = iy.max(0).min(ny as isize - 1) as usize;
-                            sum += input[[x, iy_clamped, z]] * kernel[k];
+                            sum += input[[x, iy_clamped, z]] * w;
                         }
                         slice_z[[x, y]] = sum;
                     }
@@ -80,11 +80,11 @@ fn convolve_1d(input: &Array3<f32>, axis: usize, kernel: &[f32]) -> Array3<f32> 
                 for y in 0..ny {
                     for z in 0..nz {
                         let mut sum = 0.0;
-                        for k in 0..kernel.len() {
+                        for (k, &w) in kernel.iter().enumerate() {
                             let offset = k as isize - radius;
                             let iz = z as isize + offset;
                             let iz_clamped = iz.max(0).min(nz as isize - 1) as usize;
-                            sum += input[[x, y, iz_clamped]] * kernel[k];
+                            sum += input[[x, y, iz_clamped]] * w;
                         }
                         slice_x[[y, z]] = sum;
                     }

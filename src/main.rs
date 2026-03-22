@@ -239,7 +239,6 @@ fn main() -> Result<()> {
     let options = PostProcessOptions {
         t1_low: args.t1_low,
         t1_high: args.t1_high,
-        ..Default::default()
     };
 
     postprocess::clean_t1_map(&mut t1_map, &mask, &options);
