@@ -1,5 +1,5 @@
 [package]
-name = "looklocker-t1map-rs"
+name = "looklocker-t1map"
 version = "0.1.0"
 edition = "2024"
 
@@ -12,3 +12,9 @@ nalgebra = "0.34.1"
 ndarray = { version = "0.16.1", features = ["rayon"] }
 nifti = "0.17.0"
 rayon = "1.11.0"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
+opt-level = 3

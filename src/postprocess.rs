@@ -136,3 +136,80 @@ pub fn clean_t1_map(
     println!("Filling holes...");
     fill_holes_iterative(t1_map, mask);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array3;
+
+    fn all_mask(shape: (usize, usize, usize)) -> Array3<bool> {
+        Array3::from_elem(shape, true)
+    }
+
+    #[test]
+    fn fill_holes_iterative_no_nans_is_noop() {
+        let mut data = Array3::from_elem((3, 3, 3), 1000.0f32);
+        let mask = all_mask((3, 3, 3));
+        fill_holes_iterative(&mut data, &mask);
+        assert!(data.iter().all(|&v| (v - 1000.0).abs() < 1e-3));
+    }
+
+    #[test]
+    fn fill_holes_iterative_nan_outside_mask_stays_nan() {
+        let mut data = Array3::from_elem((3, 3, 3), f32::NAN);
+        let mask = Array3::from_elem((3, 3, 3), false);
+        fill_holes_iterative(&mut data, &mask);
+        assert!(data.iter().all(|v| v.is_nan()));
+    }
+
+    #[test]
+    fn fill_holes_iterative_fills_surrounded_nan() {
+        let mut data = Array3::from_elem((3, 3, 3), 500.0f32);
+        data[[1, 1, 1]] = f32::NAN;
+        let mask = all_mask((3, 3, 3));
+        fill_holes_iterative(&mut data, &mask);
+        assert!(!data[[1, 1, 1]].is_nan(), "center NaN should be filled");
+        assert!((data[[1, 1, 1]] - 500.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn clean_t1_map_masks_outside_voxels() {
+        let mut t1 = Array3::from_elem((5, 5, 5), 1000.0f32);
+        let mut mask = all_mask((5, 5, 5));
+        mask[[2, 2, 2]] = false;
+        let opts = PostProcessOptions { t1_low: 0.0, t1_high: 5500.0 };
+        clean_t1_map(&mut t1, &mask, &opts);
+        assert!(t1[[2, 2, 2]].is_nan(), "out-of-mask voxel should be NaN");
+    }
+
+    #[test]
+    fn clean_t1_map_removes_outliers() {
+        let mut t1 = Array3::from_elem((5, 5, 5), 1000.0f32);
+        t1[[1, 1, 1]] = 6000.0; // above t1_high
+        t1[[2, 2, 2]] = -1.0;   // below t1_low
+        let mask = all_mask((5, 5, 5));
+        let opts = PostProcessOptions { t1_low: 0.0, t1_high: 5500.0 };
+        clean_t1_map(&mut t1, &mask, &opts);
+        assert!(t1[[1, 1, 1]].is_nan() || t1[[1, 1, 1]] <= 5500.0);
+        assert!(t1[[2, 2, 2]].is_nan() || t1[[2, 2, 2]] >= 0.0);
+    }
+
+    #[test]
+    fn clean_t1_map_in_bounds_values_preserved() {
+        let mut t1 = Array3::from_elem((5, 5, 5), 1000.0f32);
+        let mask = all_mask((5, 5, 5));
+        let opts = PostProcessOptions { t1_low: 0.0, t1_high: 5500.0 };
+        clean_t1_map(&mut t1, &mask, &opts);
+        assert!(t1[[0, 0, 0]].is_finite());
+    }
+
+    #[test]
+    #[should_panic(expected = "less than 1%")]
+    fn clean_t1_map_panics_when_too_few_finite() {
+        let mut t1 = Array3::from_elem((10, 10, 10), 1000.0f32);
+        let mask = all_mask((10, 10, 10));
+        // Bounds that exclude all values (1000 < 2000), leaving 0% finite
+        let opts = PostProcessOptions { t1_low: 2000.0, t1_high: 3000.0 };
+        clean_t1_map(&mut t1, &mask, &opts);
+    }
+}

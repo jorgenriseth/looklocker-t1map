@@ -1,103 +1,69 @@
-# Look-Locker T1-Map Estimation (Rust)
+# looklocker-t1map
 
-A high-performance Rust implementation of the Look-Locker T1-map estimation
-pipeline for NIfTI MRI data. This tool processes 4D MRI data to estimate T1
-relaxation times using a non-linear least squares fit, complete with robust
-masking and post-processing utilities.
+A fast Rust tool for estimating T1 relaxation maps from Look-Locker MRI data. It takes a 4D NIfTI file and trigger timestamps as input and produces a cleaned T1 map (in ms) as output.
 
-## Features
+## Download
 
-- **Fast & Parallel**: Utilizes all available CPU cores for voxel-wise curve
-  fitting (processing millions of voxels in seconds).
-- **Robust Fitting**: Implements the Look-Locker model using the
-  Levenberg-Marquardt algorithm.
-- **Advanced Post-Processing**: Includes morphological cleaning
-  (erosion/dilation), outlier removal, and iterative hole filling to produce
-  high-quality T1 maps.
-- **Native NIfTI Support**: Reads and writes NIfTI files directly, preserving
-  affine transformations.
-- **Flexible CLI**: Customizable thresholds and output options.
+Pre-built binaries for Linux, macOS, and Windows are available on the [Releases](../../releases) page. Download the archive for your platform, extract it, and run the binary directly — no installation required.
 
-## Installation & Building
+## Build from source
 
-Ensure you have [Rust and Cargo installed](https://rustup.rs/).
+Requires [Rust](https://rustup.rs/).
 
-1. **Clone the repository** (if applicable) or navigate to the project
-    directory:
-
-    ```bash
-    cd looklocker-t1map-rs
-    ```
-
-2. **Build the project in release mode**:
-
-    ```bash
-    cargo build --release
-    ```
-
-    The compiled binary will be located at `target/release/looklocker-t1map-rs`.
+```bash
+cargo build --release
+# binary at: target/release/looklocker-t1map
+```
 
 ## Usage
 
-Run the tool using the compiled binary.
-
-### Basic Command
-
 ```bash
-./target/release/looklocker-t1map-rs \
-  --input <path/to/mri_data.nii.gz> \
-  --timestamps <path/to/timestamps.txt> \
-  --output <path/to/output_t1map.nii.gz>
+looklocker-t1map \
+  --input  data/sub-01_acq-looklocker_IRT1.nii.gz \
+  --timestamps data/sub-01_acq-looklocker_IRT1_trigger_times.txt \
+  --output output/t1_map.nii.gz
 ```
 
-### Full Options
+### All options
 
-```bash
-./target/release/looklocker-t1map-rs \
-  --input data/sub-01_ses-01_acq-looklocker_IRT1.nii.gz \
-  --timestamps data/sub-01_ses-01_acq-looklocker_IRT1_trigger_times.txt \
-  --output output/t1_map_clean.nii.gz \
-  --output-raw output/t1_map_raw.nii.gz \
-  --t1-low 0 \
-  --t1-high 5500
-```
+| Argument | Description | Default |
+|:---|:---|:---|
+| `--input`, `-i` | 4D NIfTI file (x, y, z, t) | required |
+| `--timestamps`, `-t` | Text file of trigger times in milliseconds | required |
+| `--output`, `-o` | Path for the post-processed T1 map | required |
+| `--output-raw` | Path for the raw (unfiltered) T1 map | — |
+| `--t1-low` | Lower bound for valid T1 values (ms) | `0.0` |
+| `--t1-high` | Upper bound for valid T1 values (ms) | `5500.0` |
 
-### Arguments
+The timestamps file should contain whitespace-separated values, one per volume, in milliseconds.
 
-| Argument             | Description                                                                      | Default  |
-| :------------------- | :------------------------------------------------------------------------------- | :------- |
-| `--input`, `-i`      | Path to the input 4D NIfTI MRI file (x, y, z, t).                                | Required |
-| `--timestamps`, `-t` | Path to the text file containing trigger times (in ms).                          | Required |
-| `--output`, `-o`     | Path to save the final **post-processed** T1 map.                                | Required |
-| `--output-raw`       | Optional path to save the raw (unfiltered) T1 map.                               | None     |
-| `--t1-low`           | Lower bound for valid T1 values (ms). Values below this are treated as outliers. | `0.0`    |
-| `--t1-high`          | Upper bound for valid T1 values (ms). Values above this are treated as outliers. | `5500.0` |
+---
 
-## Input Formats
+## Pipeline
 
-- **MRI Data**: 4D NIfTI file (`.nii` or `.nii.gz`) where the 4th dimension
-  represents time.
-- **Timestamps**: A plain text file with whitespace-separated values
-  representing the trigger times in **milliseconds**. The number of timestamps
-  must match the number of time points in the MRI data.
+### 1. Mask generation
 
-## Post-Processing Logic
+A brain mask is computed from the data to restrict fitting to relevant voxels:
 
-The tool automatically applies the following steps to clean the T1 map:
+1. **Triangle threshold** on the first volume to produce an initial binary mask.
+2. **Hole filling** (26-connectivity flood fill) to capture internal structures.
+3. **Gaussian blur** (σ = 5.0) of the binary mask.
+4. **ISODATA threshold** on the blurred mask to define the final tight brain boundary.
 
-1.  **Mask Generation**: Replicates the robust `mri_facemask` algorithm:
-    -   **Triangle Thresholding** on the first volume.
-    -   **Hole Filling** to capture internal structures.
-    -   **Gaussian Smoothing** (sigma=5.0) of the mask.
-    -   **ISODATA Thresholding** to define the final tight head mask.
-2. **Morphological Cleaning**: Removes small holes, dilates the mask
-    (radius 10) to include boundaries, and then erodes (radius 13) to remove
-    edge artifacts.
-3. **Outlier Removal**: Sets voxels outside the mask or outside the valid T1
-    range (`[t1_low, t1_high]`) to NaN.
-4. **Hole Filling**: Iteratively fills internal gaps (NaNs) using a
-    Gaussian-weighted local average.
+Voxels must also have a positive max signal across time to be included.
 
-## License
+### 2. Voxel-wise T1 fitting
 
-[MIT](LICENSE) (or applicable license)
+For each masked voxel, the Look-Locker signal model is fitted using the Levenberg-Marquardt algorithm:
+
+$$M(t) = \left| M_0 \cdot \left(1 - (1 + \alpha^2)\, e^{-R^2 t}\right) \right|$$
+
+The time series is normalised to its maximum before fitting. The apparent relaxation time from the Look-Locker sequence is $T_1^* = 1/R^2$, which is shorter than the true $T_1$ due to the repeated RF pulses. The Look-Locker correction is applied analytically: the steady-state factor $(1 + \alpha^2)$ in the model means $T_1 = (\alpha^2) \cdot T_1^* = (\alpha / R)^2$. Fitting runs in parallel across all CPU cores.
+
+### 3. Post-processing
+
+The raw T1 map is cleaned in three steps:
+
+1. **Masking** — voxels outside the brain mask are set to zero.
+2. **Outlier removal** — voxels outside `[t1_low, t1_high]` are removed.
+3. **Hole filling** — remaining gaps inside the mask are filled iteratively using a Gaussian-weighted average of neighbouring finite voxels (σ = 1.0).

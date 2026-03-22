@@ -170,8 +170,13 @@ fn main() -> Result<()> {
             p: p0,
         };
         
-        let (result, _report) = LevenbergMarquardt::new().minimize(problem);
-        
+        let (result, report) = LevenbergMarquardt::new().minimize(problem);
+
+        if !report.termination.was_successful() {
+            pb.inc(1);
+            return ((x, y, z), f32::NAN);
+        }
+
         let p_opt = result.p;
         let x2_opt = p_opt[1];
         let x3_opt = p_opt[2];

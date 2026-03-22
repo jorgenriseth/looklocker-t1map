@@ -89,3 +89,63 @@ pub fn gaussian_blur_3d(input: &Array3<f32>, sigma: f32) -> Array3<f32> {
     let pass2 = convolve_1d(&pass1, 1, &kernel);
     convolve_1d(&pass2, 2, &kernel)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f32 = 1e-4;
+
+    #[test]
+    fn gaussian_blur_all_zeros_stays_zero() {
+        let arr = Array3::from_elem((5, 5, 5), 0.0f32);
+        let out = gaussian_blur_3d(&arr, 1.0);
+        assert!(out.iter().all(|&v| v.abs() < EPS));
+    }
+
+    #[test]
+    fn gaussian_blur_constant_array_unchanged() {
+        // Normalized kernel: weighted average of constant C = C.
+        let c = 7.0f32;
+        let arr = Array3::from_elem((9, 9, 9), c);
+        let out = gaussian_blur_3d(&arr, 1.5);
+        for &v in out.iter() {
+            assert!((v - c).abs() < EPS, "expected {c}, got {v}");
+        }
+    }
+
+    #[test]
+    fn gaussian_blur_single_impulse_peak_at_center() {
+        let n = 11usize;
+        let mid = n / 2;
+        let mut arr = Array3::from_elem((n, n, n), 0.0f32);
+        arr[[mid, mid, mid]] = 1.0;
+        let out = gaussian_blur_3d(&arr, 1.0);
+        let max_val = out.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        assert!((max_val - out[[mid, mid, mid]]).abs() < EPS);
+        assert!(out[[mid + 1, mid, mid]] > EPS);
+    }
+
+    #[test]
+    fn gaussian_blur_larger_sigma_spreads_more() {
+        let n = 15usize;
+        let mid = n / 2;
+        let mut arr = Array3::from_elem((n, n, n), 0.0f32);
+        arr[[mid, mid, mid]] = 1.0;
+        let small = gaussian_blur_3d(&arr, 0.5);
+        let large = gaussian_blur_3d(&arr, 2.0);
+        assert!(small[[mid, mid, mid]] > large[[mid, mid, mid]]);
+    }
+
+    #[test]
+    fn gaussian_blur_sum_approximately_preserved() {
+        // Uniform input with clamp padding: sum is exactly preserved.
+        let n = 15usize;
+        let arr = Array3::from_elem((n, n, n), 1.0f32);
+        let out = gaussian_blur_3d(&arr, 1.0);
+        let in_sum: f32 = arr.iter().sum();
+        let out_sum: f32 = out.iter().sum();
+        let rel_err = ((out_sum - in_sum) / in_sum).abs();
+        assert!(rel_err < 0.01, "relative sum error {rel_err} exceeds 1%");
+    }
+}

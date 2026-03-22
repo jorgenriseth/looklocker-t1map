@@ -72,3 +72,64 @@ pub fn binary_fill_holes(mask: &Array3<bool>) -> Array3<bool> {
     // Every voxel that is NOT background is either inside the original mask or a filled hole.
     background.mapv(|b| !b)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array3;
+
+    #[test]
+    fn fill_holes_no_holes_unchanged() {
+        let mask = Array3::from_elem((3, 3, 3), true);
+        let filled = binary_fill_holes(&mask);
+        assert!(filled.iter().all(|&v| v));
+    }
+
+    #[test]
+    fn fill_holes_all_false_unchanged() {
+        // All-false: all border voxels are seeded as background, flood fills everything.
+        // Result: all background → mapv(!b) → all false.
+        let mask = Array3::from_elem((3, 3, 3), false);
+        let filled = binary_fill_holes(&mask);
+        assert!(filled.iter().all(|&v| !v));
+    }
+
+    #[test]
+    fn fill_holes_interior_hole_is_filled() {
+        // 5×5×5 solid mask with one interior voxel set false.
+        // All border voxels are true → not seeded. Interior hole not reachable → filled.
+        let mut mask = Array3::from_elem((5, 5, 5), true);
+        mask[[2, 2, 2]] = false;
+        let filled = binary_fill_holes(&mask);
+        assert!(filled[[2, 2, 2]], "interior hole should be filled");
+        assert!(filled[[0, 0, 0]]);
+    }
+
+    #[test]
+    fn fill_holes_border_background_not_filled() {
+        // Background voxel on the border must NOT become true (it's reachable from seed).
+        let mut mask = Array3::from_elem((5, 5, 5), true);
+        mask[[0, 2, 2]] = false;
+        let filled = binary_fill_holes(&mask);
+        assert!(!filled[[0, 2, 2]], "border background should stay false");
+    }
+
+    #[test]
+    fn fill_holes_closed_3d_shell() {
+        // 7×7×7: only the 6 outer faces are true; interior 5×5×5 is false.
+        // All array-border voxels are true → not seeded → no flood fill runs.
+        // Interior 125 voxels are unreachable → filled (result = true).
+        let n = 7usize;
+        let mut mask = Array3::from_elem((n, n, n), false);
+        for x in 0..n { for y in 0..n { for z in 0..n {
+            if x == 0 || x == n-1 || y == 0 || y == n-1 || z == 0 || z == n-1 {
+                mask[[x, y, z]] = true;
+            }
+        }}}
+        let filled = binary_fill_holes(&mask);
+        for x in 1..n-1 { for y in 1..n-1 { for z in 1..n-1 {
+            assert!(filled[[x, y, z]], "interior [{x},{y},{z}] not filled");
+        }}}
+        assert!(filled[[0, 0, 0]]);
+    }
+}

@@ -122,3 +122,64 @@ pub fn compute_isodata_threshold(data: &ArrayView3<f32>) -> f32 {
 
     threshold
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array3;
+
+    #[test]
+    fn triangle_all_same_value() {
+        let arr = Array3::from_elem((3, 3, 3), 42.0f32);
+        let t = compute_triangle_threshold(&arr.view());
+        assert_eq!(t, 42.0);
+    }
+
+    #[test]
+    fn triangle_two_class_histogram() {
+        let mut data = vec![1.0f32; 200];
+        data.extend(vec![100.0f32; 20]);
+        let arr = Array3::from_shape_vec((1, 1, 220), data).unwrap();
+        let t = compute_triangle_threshold(&arr.view());
+        assert!(t > 1.0, "threshold {t} should be above background");
+        assert!(t < 100.0, "threshold {t} should be below foreground");
+    }
+
+    #[test]
+    fn triangle_ignores_non_finite() {
+        let mut data = vec![1.0f32; 100];
+        data.extend([f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
+        data.extend(vec![100.0f32; 10]);
+        let arr = Array3::from_shape_vec((1, 1, 113), data).unwrap();
+        let t = compute_triangle_threshold(&arr.view());
+        assert!(t.is_finite());
+    }
+
+    #[test]
+    fn isodata_all_same_value() {
+        let arr = Array3::from_elem((3, 3, 3), 7.0f32);
+        let t = compute_isodata_threshold(&arr.view());
+        assert_eq!(t, 7.0);
+    }
+
+    #[test]
+    fn isodata_two_clusters_converges() {
+        // Two clusters at 10 and 90: ISODATA converges exactly to midpoint 50.
+        let mut data = vec![10.0f32; 100];
+        data.extend(vec![90.0f32; 100]);
+        let arr = Array3::from_shape_vec((1, 1, 200), data).unwrap();
+        let t = compute_isodata_threshold(&arr.view());
+        assert!((t - 50.0).abs() < 1.0, "expected ~50, got {t}");
+    }
+
+    #[test]
+    fn isodata_ignores_non_finite() {
+        let mut data = vec![5.0f32; 50];
+        data.extend(vec![f32::NAN; 10]);
+        data.extend(vec![95.0f32; 50]);
+        let arr = Array3::from_shape_vec((1, 1, 110), data).unwrap();
+        let t = compute_isodata_threshold(&arr.view());
+        assert!(t.is_finite());
+        assert!((t - 50.0).abs() < 1.0);
+    }
+}
