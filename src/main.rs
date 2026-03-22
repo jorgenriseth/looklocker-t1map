@@ -10,8 +10,11 @@ use nalgebra::{DVector, Vector3};
 mod io;
 mod model;
 mod masking;
+mod morphology;
+mod postprocess;
 
 use model::LookLockerProblem;
+use postprocess::PostProcessOptions;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -24,6 +27,18 @@ struct Args {
 
     #[arg(short, long)]
     output: PathBuf,
+    
+    /// Optional path to save the raw (unfiltered) T1 map.
+    #[arg(long)]
+    output_raw: Option<PathBuf>,
+
+    /// Lower bound for valid T1 values (ms).
+    #[arg(long, default_value_t = 0.0)]
+    t1_low: f32,
+
+    /// Upper bound for valid T1 values (ms).
+    #[arg(long, default_value_t = 5500.0)]
+    t1_high: f32,
 }
 
 fn main() -> Result<()> {
@@ -47,12 +62,6 @@ fn main() -> Result<()> {
     // 1. Max projection along time axis
     let mut max_proj = Array3::<f32>::zeros((nx, ny, nz));
     
-    // Iterate over spatial dimensions and find max time value
-    // We can use Zip or just nested loops. Zip is faster/cleaner with ndarray.
-    // Or we can slice.
-    // Let's use simple nested loops for clarity or Zip if possible.
-    // ndarray doesn't have a direct max_axis for float.
-    
     for x in 0..nx {
         for y in 0..ny {
             for z in 0..nz {
@@ -68,11 +77,7 @@ fn main() -> Result<()> {
         }
     }
 
-    // 2. Threshold > 0 and masking on first volume (Python logic: mri_facemask(D[..., 0]))
-    // Python's mri_facemask usually operates on structural info.
-    // The python script uses `mri_facemask(D[..., 0])`.
-    // Let's compute mask on first volume > 0.
-    
+    // 2. Threshold > 0 and masking on first volume
     let first_vol = mri_data.slice(s![.., .., .., 0]);
     let mut mask_input = Array3::<bool>::from_elem((nx, ny, nz), false);
     for ((x, y, z), &val) in first_vol.indexed_iter() {
@@ -81,14 +86,11 @@ fn main() -> Result<()> {
         }
     }
     
-    let mask = masking::get_largest_component_mask(&mask_input);
+    let mut mask = masking::get_largest_component_mask(&mask_input);
     
     // 3. Valid voxels: (max_proj > 0) AND mask
-    // We'll just iterate over the mask.
-    
     let mut t1_map = Array3::<f32>::from_elem((nx, ny, nz), f32::NAN);
     
-    // Flatten indices for parallel iteration
     let mut indices = Vec::new();
     for x in 0..nx {
         for y in 0..ny {
@@ -109,14 +111,6 @@ fn main() -> Result<()> {
 
     let timestamps_vec = DVector::from_vec(timestamps.clone());
     
-    // We can't share ProgressBar across threads easily without overhead or specific crates.
-    // `indicatif` works with `rayon` via `par_iter` if we wrap it, but standard approach is periodic update or just simple finish.
-    // For simplicity, we can use `pb.inc` in a rough way or just print status.
-    // `indicatif` has `ParallelProgressIterator` trait if enabled? No, usually requires `indicatif` features.
-    // We'll skip granular progress bar update inside rayon for now to avoid complexity or use a scoped thread if needed.
-    // Or we can just use `pb.inc(1)` if we use `par_iter().for_each`. Rayon `for_each` takes a closure. `pb` needs to be thread-safe. `ProgressBar` is thread-safe.
-    
-    // We use par_iter to map indices to results.
     let results: Vec<((usize, usize, usize), f32)> = indices.par_iter().map(|&(x, y, z)| {
         // Extract time series
         let mut voxel_data = Vec::with_capacity(nt);
@@ -171,6 +165,7 @@ fn main() -> Result<()> {
             f32::NAN as f64
         };
         
+        // Use a high roof for raw data, but post-processing will clamp tighter.
         let t1_roof = 10000.0;
         let t1_final = if t1.is_nan() { f32::NAN } else { t1.min(t1_roof) as f32 };
         
@@ -185,8 +180,24 @@ fn main() -> Result<()> {
         t1_map[[x, y, z]] = val;
     }
 
-    println!("Saving output...");
-    // Convert to ArrayD
+    // Save raw output if requested
+    if let Some(raw_path) = &args.output_raw {
+        println!("Saving raw output...");
+        let raw_data = t1_map.clone().into_dyn();
+        io::save_nifti(raw_path, raw_data, &header)?;
+    }
+
+    // Post-processing
+    println!("Starting post-processing...");
+    let options = PostProcessOptions {
+        t1_low: args.t1_low,
+        t1_high: args.t1_high,
+        ..Default::default()
+    };
+    
+    postprocess::clean_t1_map(&mut t1_map, &mut mask, &options);
+
+    println!("Saving post-processed output...");
     let output_data = t1_map.into_dyn();
     io::save_nifti(&args.output, output_data, &header)?;
 

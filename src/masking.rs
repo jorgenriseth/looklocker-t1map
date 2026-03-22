@@ -1,13 +1,16 @@
 use ndarray::Array3;
 use std::collections::VecDeque;
 
-pub fn get_largest_component_mask(input: &Array3<bool>) -> Array3<bool> {
+/// Labels connected components in a 3D boolean array.
+/// Returns the labeled array (0 for background/false, 1+ for components) and a list of component sizes.
+/// The sizes are indexed by label-1 (i.e., sizes[0] is count for label 1).
+pub fn label_components(input: &Array3<bool>) -> (Array3<usize>, Vec<usize>) {
     let shape = input.shape();
     let (nx, ny, nz) = (shape[0], shape[1], shape[2]);
     let mut visited = Array3::from_elem((nx, ny, nz), false);
     let mut labels = Array3::from_elem((nx, ny, nz), 0usize);
     let mut current_label = 0;
-    let mut label_counts = Vec::new();
+    let mut component_sizes = Vec::new();
 
     // 6-connectivity neighbors
     let neighbors = [
@@ -47,26 +50,37 @@ pub fn get_largest_component_mask(input: &Array3<bool>) -> Array3<bool> {
                             }
                         }
                     }
-                    label_counts.push((current_label, count));
+                    component_sizes.push(count);
                 }
             }
         }
     }
+    
+    (labels, component_sizes)
+}
 
-    if label_counts.is_empty() {
+pub fn get_largest_component_mask(input: &Array3<bool>) -> Array3<bool> {
+    let (labels, sizes) = label_components(input);
+    let shape = input.shape();
+    let (nx, ny, nz) = (shape[0], shape[1], shape[2]);
+
+    if sizes.is_empty() {
         return Array3::from_elem((nx, ny, nz), false);
     }
 
     // Find label with max count
-    label_counts.sort_by_key(|k| k.1);
-    let (largest_label, _) = label_counts.last().unwrap();
+    // enumerate to keep track of index (which corresponds to label-1)
+    let (max_idx, _) = sizes.iter().enumerate().max_by_key(|&(_, count)| count).unwrap();
+    let target_label = max_idx + 1;
     
     // Create mask for largest label
     let mut mask = Array3::from_elem((nx, ny, nz), false);
+    // Parallelizing this map is easy if needed, but let's keep it simple.
+    // Or optimize loop order.
     for x in 0..nx {
         for y in 0..ny {
             for z in 0..nz {
-                if labels[[x, y, z]] == *largest_label {
+                if labels[[x, y, z]] == target_label {
                     mask[[x, y, z]] = true;
                 }
             }
