@@ -150,6 +150,7 @@ jobs:
 
   docker:
     name: Build and push Docker image
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
