@@ -47,7 +47,7 @@ jobs:
             use_zigbuild: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Verify tag matches Cargo.toml version
         shell: bash
@@ -64,7 +64,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -73,11 +73,17 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
 
+      - name: Install zig (Linux)
+        if: matrix.use_zigbuild && runner.os == 'Linux'
+        run: pip3 install ziglang --quiet
+
+      - name: Install zig (macOS)
+        if: matrix.use_zigbuild && runner.os == 'macOS'
+        run: brew install zig
+
       - name: Install cargo-zigbuild
         if: matrix.use_zigbuild
-        run: |
-          pip3 install ziglang --quiet
-          cargo install cargo-zigbuild --locked --quiet
+        run: cargo install cargo-zigbuild --locked --quiet
 
       - name: Build (zigbuild)
         if: matrix.use_zigbuild
@@ -114,7 +120,7 @@ jobs:
           echo "ASSET=${env:ARCHIVE_NAME}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ASSET }}
@@ -125,10 +131,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -146,7 +152,7 @@ jobs:
     name: Build and push Docker image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
