@@ -32,9 +32,9 @@ jobs:
             use_zigbuild: true
 
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest
             archive: tar.gz
-            use_zigbuild: false
+            use_zigbuild: true
 
           - target: aarch64-apple-darwin
             runner: macos-latest
@@ -50,6 +50,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Verify tag matches Cargo.toml version
+        shell: bash
         run: |
           CARGO_VERSION="v$(grep '^version' Cargo.toml | head -1 | sed 's/.*= "\(.*\)"/\1/')"
           if [ "${{ github.ref_name }}" != "$CARGO_VERSION" ]; then
