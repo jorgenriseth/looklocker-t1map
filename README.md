@@ -6,6 +6,52 @@ A fast Rust tool for estimating T1 relaxation maps from Look-Locker MRI data. It
 
 Pre-built binaries for Linux, macOS, and Windows are available on the [Releases](../../releases) page. Download the archive for your platform, extract it, and run the binary directly — no installation required.
 
+## Container (Docker / Singularity)
+
+A minimal container image is published to the GitHub Container Registry on every release.
+
+### Docker
+
+Pull and run the pre-built image:
+
+```bash
+docker pull ghcr.io/jorgenriseth/looklocker-t1map:latest
+
+docker run --rm \
+  -v "$(pwd)":/data \
+  ghcr.io/jorgenriseth/looklocker-t1map:latest \
+  --input  /data/sub-01_acq-looklocker_IRT1.nii.gz \
+  --timestamps /data/sub-01_acq-looklocker_IRT1_trigger_times.txt \
+  --output /data/t1_map.nii.gz
+```
+
+The `-v "$(pwd)":/data` flag mounts your current directory into the container at `/data`. Adjust the mount as needed.
+
+To build the image locally:
+
+```bash
+docker build -t looklocker-t1map .
+```
+
+### Singularity / Apptainer
+
+Pull the Docker image as a Singularity image file (`.sif`):
+
+```bash
+singularity pull looklocker-t1map.sif docker://ghcr.io/jorgenriseth/looklocker-t1map:latest
+```
+
+Run it:
+
+```bash
+singularity run looklocker-t1map.sif \
+  --input  sub-01_acq-looklocker_IRT1.nii.gz \
+  --timestamps sub-01_acq-looklocker_IRT1_trigger_times.txt \
+  --output t1_map.nii.gz
+```
+
+Singularity bind-mounts your current directory automatically, so paths relative to `$PWD` work without extra flags.
+
 ## Build from source
 
 Requires [Rust](https://rustup.rs/).
